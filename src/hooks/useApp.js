@@ -152,10 +152,34 @@ export function useApp() {
     try {
       const poll = await api.getPoll(pollId);
       setActivePoll(poll);
-      setCardIdx(0);
-      setVotes({});
       setMatchCard(null);
-      setScreen('voting');
+
+      if (poll.status === 'completed') {
+        const res = await api.results(pollId);
+        setResults(res);
+        setScreen('results');
+      } else if (poll.status !== 'active' || poll.participants.length < 2) {
+        setCardIdx(0);
+        setVotes({});
+        setScreen('waiting');
+      } else {
+        // Голосование уже идёт — не начинаем заново, а продолжаем
+        // с первой карточки, за которую ещё не проголосовали
+        const myVotes = await api.myVotes(pollId);
+        const votedCardIds = new Set(myVotes.map(v => String(v.cardId)));
+        const nextIdx = poll.cards.findIndex(c => !votedCardIds.has(String(c._id)));
+
+        if (nextIdx === -1) {
+          // Уже проголосовали за все карточки — смотрим текущие результаты
+          const res = await api.results(pollId);
+          setResults(res);
+          setScreen('results');
+        } else {
+          setCardIdx(nextIdx);
+          setVotes({});
+          setScreen('voting');
+        }
+      }
     } catch (e) {
       showToast('Опрос не найден');
     } finally {
@@ -169,25 +193,31 @@ export function useApp() {
       setActivePoll(res.poll);
       setCardIdx(0);
       setVotes({});
-      setScreen('voting');
+      // Присоединившийся всегда попадает в комнату ожидания —
+      // организатор сам решает когда стартовать голосование
+      setScreen('waiting');
       showToast('Вы присоединились к опросу');
     } catch (e) {
       showToast(e.message || 'Код не найден');
     }
   }, [showToast]);
 
-  const startVoting = useCallback(async () => {
+  const enterVoting = useCallback(() => {
+    setCardIdx(0);
+    setVotes({});
+    setMatchCard(null);
+    setScreen('voting');
+  }, []);
+
+  const startVoting = useCallback(async (durationMinutes = 60) => {
     if (!activePoll) return;
     try {
-      await api.startVoting(activePoll._id);
-      setCardIdx(0);
-      setVotes({});
-      setMatchCard(null);
-      setScreen('voting');
+      await api.startVoting(activePoll._id, durationMinutes);
+      enterVoting();
     } catch (e) {
       showToast(e.message);
     }
-  }, [activePoll, showToast]);
+  }, [activePoll, showToast, enterVoting]);
 
   const castVote = useCallback(async (cardId, vote) => {
     if (!activePoll) return 'advance';
@@ -238,7 +268,7 @@ export function useApp() {
     user, login, register, logout, authLoading,
     myPolls, pollsLoading, loadMyPolls,
     pollDraft, setPollDraft,
-    activePoll, setActivePoll, pollLoading, createPoll, addCardToPoll, openPoll, joinByCode, startVoting,
+    activePoll, setActivePoll, pollLoading, createPoll, addCardToPoll, openPoll, joinByCode, startVoting, enterVoting,
     cardIdx, setCardIdx, votes, castVote, nextCard,
     matchCard, dismissMatch,
     results,
