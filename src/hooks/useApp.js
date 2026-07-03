@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { initTelegram, getInitData, getTelegramUserUnsafe, getStartParam, isInTelegram } from './useTelegram';
 
@@ -9,6 +9,7 @@ export function useApp() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [myPolls, setMyPolls] = useState([]);
+  const lastPollsLoadRef = useRef(0);
   const [pollsLoading, setPollsLoading] = useState(false);
 
   const [pollDraft, setPollDraft] = useState({ scenario: null, title: '', category: null, step: 1 });
@@ -108,7 +109,11 @@ export function useApp() {
   const navigate = useCallback((to) => setScreen(to), []);
 
   // ── Опросы ──────────────────────────────────────────────────────
-  const loadMyPolls = useCallback(async () => {
+  const loadMyPolls = useCallback(async (force = false) => {
+    // Не дёргаем сервер заново, если список уже свежий (загружен < 8 сек назад) —
+    // это убирает лишний round-trip при каждом возврате на главную
+    if (!force && Date.now() - lastPollsLoadRef.current < 8000) return;
+    lastPollsLoadRef.current = Date.now();
     setPollsLoading(true);
     try {
       const polls = await api.myPolls();
@@ -153,7 +158,7 @@ export function useApp() {
         scenario: poll.scenario,
         title: poll.title,
         category: poll.category,
-        step: poll.scenario === 'personal' ? 3 : 4,
+        step: 3,
         votingDuration: poll.votingDurationMinutes,
         targetParticipants: poll.targetParticipants,
       });
@@ -171,6 +176,13 @@ export function useApp() {
     try {
       const res = await api.createPoll(title, category, scenario, targetParticipants);
       setActivePoll(res.poll);
+      setMyPolls(prev => [{
+        _id: res.poll._id, title: res.poll.title, category: res.poll.category,
+        status: 'draft', cardsCount: 0, participantsCount: res.poll.participants.length,
+        targetParticipants, progress: 0, votesCount: 0,
+        sessionCode: res.poll.sessionCode, createdBy: res.poll.createdBy,
+        createdAt: res.poll.createdAt, votingEndsAt: null,
+      }, ...prev]);
       return res.poll;
     } catch (e) {
       showToast(e.message);
@@ -180,9 +192,10 @@ export function useApp() {
 
   const addCardToPoll = useCallback(async (pollId, title, description, imageBase64, links) => {
     try {
-      await api.addCard(pollId, title, description, imageBase64, links);
-      const updated = await api.getPoll(pollId);
-      setActivePoll(updated);
+      const res = await api.addCard(pollId, title, description, imageBase64, links);
+      // Сервер уже вернул добавленную карточку — не делаем второй запрос за всем опросом целиком,
+      // просто дописываем карточку в уже имеющиеся данные
+      setActivePoll(prev => prev ? { ...prev, cards: [...prev.cards, res.card] } : prev);
       return true;
     } catch (e) {
       showToast(e.message);
@@ -193,7 +206,12 @@ export function useApp() {
   const openPoll = useCallback(async (pollId) => {
     setPollLoading(true);
     try {
-      const poll = await api.getPoll(pollId);
+      // Запрашиваем опрос и свои голоса параллельно, а не по очереди —
+      // они не зависят друг от друга, экономим один полный round-trip
+      const [poll, myVotes] = await Promise.all([
+        api.getPoll(pollId),
+        api.myVotes(pollId).catch(() => []),
+      ]);
       setActivePoll(poll);
       setMatchCard(null);
 
@@ -202,14 +220,20 @@ export function useApp() {
         setResults(res);
         setScreen('results');
       } else if (poll.status !== 'active') {
-        // Опрос ещё не запущен (например, совместный сценарий без карточек) —
-        // комнаты ожидания больше нет, просто сообщаем и остаёмся на главной
-        showToast('Опрос ещё не начался — добавьте варианты и запустите голосование');
-        setScreen('home');
+        // Опрос ещё не запущен — ведём добавлять/дополнять варианты,
+        // доступно и организатору, и присоединившимся участникам (совместный сценарий)
+        setPollDraft({
+          scenario: poll.scenario,
+          title: poll.title,
+          category: poll.category,
+          step: 3,
+          votingDuration: poll.votingDurationMinutes,
+          targetParticipants: poll.targetParticipants,
+        });
+        setScreen('create');
       } else {
         // Голосование уже идёт — не начинаем заново, а продолжаем
         // с первой карточки, за которую ещё не проголосовали
-        const myVotes = await api.myVotes(pollId);
         const votedCardIds = new Set(myVotes.map(v => String(v.cardId)));
         const nextIdx = poll.cards.findIndex(c => !votedCardIds.has(String(c._id)));
 
@@ -243,8 +267,17 @@ export function useApp() {
         setResults(r);
         setScreen('results');
       } else if (poll.status !== 'active') {
-        showToast('Организатор ещё не запустил голосование');
-        setScreen('home');
+        // Опрос ещё не запущен (совместный сценарий) — присоединившийся
+        // тоже может сразу добавлять свои варианты
+        setPollDraft({
+          scenario: poll.scenario,
+          title: poll.title,
+          category: poll.category,
+          step: 3,
+          votingDuration: poll.votingDurationMinutes,
+          targetParticipants: poll.targetParticipants,
+        });
+        setScreen('create');
       } else {
         const myVotes = await api.myVotes(poll._id);
         const votedCardIds = new Set(myVotes.map(v => String(v.cardId)));
