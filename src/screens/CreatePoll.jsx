@@ -34,7 +34,7 @@ const Footer = ({ children }) => (
   </div>
 );
 
-export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, showToast }) {
+export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, updatePollQuick, showToast }) {
   const [scenario, setScenario] = useState(pollDraft.scenario);
   const [title, setTitle] = useState(pollDraft.title);
   const [cat, setCat] = useState(pollDraft.category);
@@ -79,9 +79,16 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
   const handleStep2Next = async () => {
     if (!title || !cat) return;
     setCreating(true);
-    const poll = await createPoll(title, cat, scenario, targetParticipants);
-    setCreating(false);
-    if (poll) goStep(3);
+    if (activePoll?._id) {
+      // Опрос уже существует (открыт для редактирования) — обновляем, не создаём новый
+      const ok = await updatePollQuick(activePoll._id, { title, category: cat });
+      setCreating(false);
+      if (ok) goStep(3);
+    } else {
+      const poll = await createPoll(title, cat, scenario, targetParticipants);
+      setCreating(false);
+      if (poll) goStep(3);
+    }
   };
 
   const handleImagePick = async (e) => {

@@ -6,40 +6,107 @@ import { haptics, tgBackButton, tgOpenLink } from '../hooks/useTelegram';
 export default function Voting({ activePoll, cardIdx, castVote, nextCard, navigate, pollLoading }) {
   const cards = activePoll?.cards || [];
   const card = cards[cardIdx];
-  const [drag, setDrag] = useState({ x: 0, y: 0, active: false });
-  const [flying, setFlying] = useState(null);
+
+  // Во время самого свайпа мы НЕ трогаем React state — иначе каждый пиксель
+  // движения пальца вызывает полный re-render (это и вызывало тормоза).
+  // Вместо этого пишем стили напрямую в DOM через refs, батчим через rAF,
+  // и обращаемся к React только когда жест завершён (спружинить назад / улететь).
+  const cardRef = useRef(null);
+  const likeStampRef = useRef(null);
+  const nopeStampRef = useRef(null);
+  const discussStampRef = useRef(null);
+
+  const dragRef = useRef({ x: 0, y: 0, active: false });
   const startRef = useRef({ x: 0, y: 0 });
+  const rafRef = useRef(null);
+
+  const [flying, setFlying] = useState(null);
 
   useEffect(() => tgBackButton(() => navigate('home')), [navigate]);
 
+  // Сбрасываем позицию карточки при смене карточки (новая карточка = чистый лист)
+  useEffect(() => {
+    dragRef.current = { x: 0, y: 0, active: false };
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'none';
+      cardRef.current.style.transform = 'translate(0px, 0px) rotate(0deg)';
+      cardRef.current.style.opacity = '1';
+    }
+    [likeStampRef, nopeStampRef, discussStampRef].forEach(r => { if (r.current) r.current.style.opacity = '0'; });
+  }, [cardIdx]);
+
   const gp = (e) => ({ x: e.clientX ?? e.touches?.[0]?.clientX ?? 0, y: e.clientY ?? e.touches?.[0]?.clientY ?? 0 });
 
-  const onDown = (e) => { startRef.current = gp(e); setDrag(d => ({ ...d, active: true })); };
-  const onMove = (e) => {
-    if (!drag.active) return;
-    const p = gp(e);
-    setDrag({ x: p.x - startRef.current.x, y: p.y - startRef.current.y, active: true });
+  // Применяет текущую позицию драга к DOM — вызывается максимум раз за кадр (rAF)
+  const applyDragToDOM = () => {
+    rafRef.current = null;
+    const { x, y } = dragRef.current;
+    if (!cardRef.current) return;
+
+    const rotate = x / SWIPE.rotateDivisor;
+    cardRef.current.style.transform = `translate(${x}px, ${Math.min(y, 0)}px) rotate(${rotate}deg)`;
+
+    const isVert = y < 0 && Math.abs(y) > Math.abs(x);
+    const likeOp = !isVert ? Math.min(1, Math.max(0, x / 90)) : 0;
+    const nopeOp = !isVert ? Math.min(1, Math.max(0, -x / 90)) : 0;
+    const discussOp = isVert ? Math.min(1, Math.max(0, -y / 90)) : 0;
+
+    if (likeStampRef.current) likeStampRef.current.style.opacity = String(likeOp);
+    if (nopeStampRef.current) nopeStampRef.current.style.opacity = String(nopeOp);
+    if (discussStampRef.current) discussStampRef.current.style.opacity = String(discussOp);
   };
+
+  const onDown = (e) => {
+    startRef.current = gp(e);
+    dragRef.current = { x: 0, y: 0, active: true };
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'none';
+      cardRef.current.style.cursor = 'grabbing';
+    }
+  };
+
+  const onMove = (e) => {
+    if (!dragRef.current.active) return;
+    const p = gp(e);
+    dragRef.current.x = p.x - startRef.current.x;
+    dragRef.current.y = p.y - startRef.current.y;
+    // Батчим запись в DOM — не чаще одного раза за кадр, даже если события идут чаще
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(applyDragToDOM);
+    }
+  };
+
+  const springBack = () => {
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    dragRef.current = { x: 0, y: 0, active: false };
+    if (cardRef.current) {
+      cardRef.current.style.transition = SWIPE.springBack;
+      cardRef.current.style.transform = 'translate(0px, 0px) rotate(0deg)';
+      cardRef.current.style.cursor = 'grab';
+    }
+    [likeStampRef, nopeStampRef, discussStampRef].forEach(r => { if (r.current) r.current.style.opacity = '0'; });
+  };
+
   const onUp = () => {
-    if (!drag.active) return;
-    const { x, y } = drag;
+    if (!dragRef.current.active) return;
+    const { x, y } = dragRef.current;
+    dragRef.current.active = false;
     const ax = Math.abs(x), ay = Math.abs(y);
-    setDrag(d => ({ ...d, active: false }));
 
     if (y < -SWIPE.vertical && ay > ax) commit('discuss');
     else if (x > SWIPE.horizontal) commit('like');
     else if (x < -SWIPE.horizontal) commit('nope');
-    else setDrag({ x: 0, y: 0, active: false });
+    else springBack();
   };
 
   const commit = useCallback(async (vote) => {
     if (!card) return;
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     haptics.light();
-    setFlying(vote);
+    setFlying(vote); // единственный setState за весь жест — на коммит, не на движение
     const result = await castVote(card._id, vote);
     setTimeout(() => {
       setFlying(null);
-      setDrag({ x: 0, y: 0, active: false });
       if (result === 'match') {
         haptics.success();
         navigate('match');
@@ -66,26 +133,19 @@ export default function Voting({ activePoll, cardIdx, castVote, nextCard, naviga
     );
   }
 
-  const rotate = drag.x / SWIPE.rotateDivisor;
   const flyTransform =
     flying === 'like'    ? `translate(${SWIPE.flyDistanceX}px, -40px) rotate(24deg)` :
     flying === 'nope'    ? `translate(-${SWIPE.flyDistanceX}px, -40px) rotate(-24deg)` :
     flying === 'discuss' ? `translate(0, -${SWIPE.flyDistanceY}px) rotate(0deg)` : null;
 
+  // flying меняется редко (раз за карточку) — тут React-рендер это нормально и дёшево
   const cardStyle = {
     position: 'absolute', inset: 0, borderRadius: 24, overflow: 'hidden',
     background: C.card, border: `1px solid ${C.cardBorder}`,
     boxShadow: SHADOW.cardStack,
-    userSelect: 'none', touchAction: 'none', cursor: drag.active ? 'grabbing' : 'grab',
-    transform: flyTransform || `translate(${drag.x}px, ${Math.min(drag.y, 0)}px) rotate(${rotate}deg)`,
-    transition: flying ? `transform ${SWIPE.commitDuration}ms ease-out, opacity ${SWIPE.commitDuration}ms` : (drag.active ? 'none' : SWIPE.springBack),
-    opacity: flying ? 0.2 : 1,
+    userSelect: 'none', touchAction: 'none', cursor: 'grab',
+    ...(flying ? { transform: flyTransform, transition: `transform ${SWIPE.commitDuration}ms ease-out, opacity ${SWIPE.commitDuration}ms`, opacity: 0.2 } : {}),
   };
-
-  const isVert = drag.y < 0 && Math.abs(drag.y) > Math.abs(drag.x);
-  const likeOp = !isVert ? Math.min(1, Math.max(0, drag.x / 90)) : 0;
-  const nopeOp = !isVert ? Math.min(1, Math.max(0, -drag.x / 90)) : 0;
-  const discussOp = isVert ? Math.min(1, Math.max(0, -drag.y / 90)) : 0;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: C.bgGradient, overflow: 'hidden' }}>
@@ -116,21 +176,21 @@ export default function Voting({ activePoll, cardIdx, castVote, nextCard, naviga
           );
         })}
 
-        <div style={cardStyle}>
+        <div ref={cardRef} style={cardStyle}>
           <div style={{ position: 'relative', height: '62%', background: card.imageBase64 ? undefined : `linear-gradient(160deg, #2a1f5c, #1a1a2e)`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
             {card.imageBase64 ? (
-              <img src={`data:image/jpeg;base64,${card.imageBase64}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+              <img src={`data:image/jpeg;base64,${card.imageBase64}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" draggable={false} />
             ) : (
               <div style={{ fontSize: 40, fontWeight: 700, color: 'rgba(255,255,255,.2)' }}>{card.title?.[0]?.toUpperCase()}</div>
             )}
 
-            <div style={{ position: 'absolute', top: 18, right: 16, border: `3px solid ${C.like}`, borderRadius: 10, padding: '4px 12px', transform: 'rotate(10deg)', opacity: likeOp }}>
+            <div ref={likeStampRef} style={{ position: 'absolute', top: 18, right: 16, border: `3px solid ${C.like}`, borderRadius: 10, padding: '4px 12px', transform: 'rotate(10deg)', opacity: 0 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: C.like, letterSpacing: 1 }}>НРАВИТСЯ</span>
             </div>
-            <div style={{ position: 'absolute', top: 18, left: 16, border: `3px solid ${C.no}`, borderRadius: 10, padding: '4px 12px', transform: 'rotate(-10deg)', opacity: nopeOp }}>
+            <div ref={nopeStampRef} style={{ position: 'absolute', top: 18, left: 16, border: `3px solid ${C.no}`, borderRadius: 10, padding: '4px 12px', transform: 'rotate(-10deg)', opacity: 0 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: C.no, letterSpacing: 1 }}>NOPE</span>
             </div>
-            <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', border: `3px solid ${C.discuss}`, borderRadius: 10, padding: '4px 12px', opacity: discussOp }}>
+            <div ref={discussStampRef} style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', border: `3px solid ${C.discuss}`, borderRadius: 10, padding: '4px 12px', opacity: 0 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: C.discuss, letterSpacing: 1 }}>ОБСУДИМ</span>
             </div>
           </div>
