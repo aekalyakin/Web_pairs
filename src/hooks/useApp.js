@@ -120,6 +120,49 @@ export function useApp() {
     }
   }, [showToast]);
 
+  // Удаляем из своего списка — сразу убираем из UI, не дожидаясь перезагрузки
+  const deletePollFromList = useCallback(async (pollId) => {
+    try {
+      await api.deletePoll(pollId);
+      setMyPolls(prev => prev.filter(p => p._id !== pollId));
+      showToast('Опрос удалён');
+    } catch (e) {
+      showToast(e.message || 'Не удалось удалить опрос');
+    }
+  }, [showToast]);
+
+  // Быстрое редактирование названия/категории — доступно, пока нет ни одного голоса
+  const updatePollQuick = useCallback(async (pollId, data) => {
+    try {
+      const res = await api.updatePoll(pollId, data);
+      setMyPolls(prev => prev.map(p => p._id === pollId ? { ...p, ...data } : p));
+      return true;
+    } catch (e) {
+      showToast(e.message || 'Не удалось изменить опрос');
+      return false;
+    }
+  }, [showToast]);
+
+  // Открываем опрос организатора для управления вариантами (только пока нет голосов) —
+  // ведём в тот же визард создания, сразу на шаг с карточками
+  const openPollForEdit = useCallback(async (pollId) => {
+    try {
+      const poll = await api.getPoll(pollId);
+      setActivePoll(poll);
+      setPollDraft({
+        scenario: poll.scenario,
+        title: poll.title,
+        category: poll.category,
+        step: poll.scenario === 'personal' ? 3 : 4,
+        votingDuration: poll.votingDurationMinutes,
+        targetParticipants: poll.targetParticipants,
+      });
+      setScreen('create');
+    } catch (e) {
+      showToast('Не удалось открыть опрос для редактирования');
+    }
+  }, [showToast]);
+
   useEffect(() => {
     if (screen === 'home') loadMyPolls();
   }, [screen, loadMyPolls]);
@@ -285,7 +328,7 @@ export function useApp() {
     screen, setScreen, navigate,
     onboardIdx, setOnboardIdx,
     user, login, register, logout, authLoading,
-    myPolls, pollsLoading, loadMyPolls,
+    myPolls, pollsLoading, loadMyPolls, deletePollFromList, updatePollQuick, openPollForEdit,
     pollDraft, setPollDraft,
     activePoll, setActivePoll, pollLoading, createPoll, addCardToPoll, openPoll, joinByCode, startVoting, enterVoting,
     cardIdx, setCardIdx, votes, castVote, nextCard,
