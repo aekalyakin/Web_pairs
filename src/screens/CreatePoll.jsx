@@ -34,13 +34,14 @@ const Footer = ({ children }) => (
   </div>
 );
 
-export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, showToast }) {
+export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, showToast }) {
   const [scenario, setScenario] = useState(pollDraft.scenario);
   const [title, setTitle] = useState(pollDraft.title);
   const [cat, setCat] = useState(pollDraft.category);
   const [step, setStep] = useState(pollDraft.step || 1);
   const [creating, setCreating] = useState(false);
   const [votingDuration, setVotingDuration] = useState(pollDraft.votingDuration || 60);
+  const [targetParticipants, setTargetParticipants] = useState(pollDraft.targetParticipants || 2);
 
   // Шаг 3 — добавление карточек (для личного сценария)
   const [cardTitle, setCardTitle] = useState('');
@@ -78,7 +79,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
   const handleStep2Next = async () => {
     if (!title || !cat) return;
     setCreating(true);
-    const poll = await createPoll(title, cat, scenario);
+    const poll = await createPoll(title, cat, scenario, targetParticipants);
     setCreating(false);
     if (poll) goStep(3);
   };
@@ -110,14 +111,22 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
     }
   };
 
-  const handleFinish = () => {
+  const [finishing, setFinishing] = useState(false);
+  const handleFinish = async () => {
     if (scenario === 'personal' && (!activePoll?.cards || activePoll.cards.length < 2)) {
       showToast('Добавьте хотя бы 2 варианта');
       return;
     }
-    // Сохраняем выбранную длительность — комната ожидания возьмёт её при старте голосования
-    setPollDraft(d => ({ ...d, votingDuration }));
-    navigate('waiting');
+    if (scenario !== 'personal' && (!activePoll?.cards || activePoll.cards.length === 0)) {
+      // Совместный сценарий без карточек пока не готов — просто уходим на главную,
+      // участники смогут присоединиться и добавить варианты позже
+      showToast('Опрос создан. Поделитесь кодом с участниками');
+      navigate('home');
+      return;
+    }
+    setFinishing(true);
+    await startVoting(votingDuration); // сразу переносит создателя в голосование
+    setFinishing(false);
   };
 
   return (
@@ -155,8 +164,28 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
           <>
             <Field label="Название опроса" value={title} onChange={setTitle} placeholder="Например: Куда сходим вечером?" />
             <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 10, fontWeight: 500 }}>Категория</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
               {CATEGORIES.map(c => <Chip key={c.id} label={c.label} emoji={c.emoji} active={cat === c.id} onClick={() => setCat(c.id)} />)}
+            </div>
+
+            <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 10, fontWeight: 500 }}>Сколько участников ждём</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[2, 5, 10, 20].map(n => (
+                <div
+                  key={n}
+                  onClick={() => { haptics.light(); setTargetParticipants(n); }}
+                  style={{
+                    flex: 1, textAlign: 'center', padding: '11px 6px', borderRadius: 12, cursor: 'pointer',
+                    background: targetParticipants === n ? 'rgba(168,85,247,.2)' : C.card,
+                    border: `1.5px solid ${targetParticipants === n ? C.accentTo : C.borderSoft}`,
+                    color: targetParticipants === n ? '#c4b5fd' : C.textSecondary,
+                    fontSize: 13, fontWeight: 600,
+                  }}
+                >{n}</div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 1.5 }}>
+              Голосование завершится досрочно, как только все {targetParticipants} проголосуют — или по истечении времени
             </div>
           </>
         )}
@@ -311,8 +340,8 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
           </PrimaryBtn>
         )}
         {isInviteStep && (
-          <PrimaryBtn onClick={handleFinish}>
-            {scenario === 'personal' ? 'Продолжить' : 'Создать и пригласить'}
+          <PrimaryBtn onClick={handleFinish} disabled={finishing}>
+            {finishing ? 'Запускаем...' : scenario === 'personal' ? 'Начать голосование' : 'Создать опрос'}
           </PrimaryBtn>
         )}
       </Footer>

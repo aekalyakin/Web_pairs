@@ -95,7 +95,7 @@ export default function Home({ user, myPolls, pollsLoading, navigate, openPoll }
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 600, color: C.textPrimary, marginBottom: 3 }}>{poll.title}</div>
-                  <div style={{ fontSize: 12, color: C.textSecondary }}>{poll.cardsCount} {poll.cardsCount === 1 ? 'вариант' : 'вариантов'} · {poll.participantsCount} {poll.participantsCount === 1 ? 'участник' : 'участников'}</div>
+                  <div style={{ fontSize: 12, color: C.textSecondary }}>{poll.cardsCount} {poll.cardsCount === 1 ? 'вариант' : 'вариантов'} · {poll.participantsCount}{poll.targetParticipants ? `/${poll.targetParticipants}` : ''} участников</div>
                 </div>
                 <span style={{ fontSize: 11, background: 'rgba(168,85,247,.15)', color: '#c4b5fd', padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{catInfo.emoji} {catInfo.label}</span>
               </div>
