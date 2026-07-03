@@ -34,7 +34,7 @@ const Footer = ({ children }) => (
   </div>
 );
 
-export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, updatePollQuick, showToast }) {
+export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, updatePollQuick, showToast, user }) {
   const [scenario, setScenario] = useState(pollDraft.scenario);
   const [title, setTitle] = useState(pollDraft.title);
   const [cat, setCat] = useState(pollDraft.category);
@@ -71,8 +71,11 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
     haptics.light();
   };
 
-  const totalSteps = scenario === 'personal' ? 4 : 3;
-  const isInviteStep = (step === 3 && scenario !== 'personal') || step === 4;
+  const totalSteps = 4; // шаг с карточками теперь общий для обоих сценариев
+  const isInviteStep = step === 4;
+  const isOrganizer = !activePoll || !user
+    ? true // ещё не создан / данные не подгрузились — считаем организатором (это создатель)
+    : String(activePoll.createdBy?._id || activePoll.createdBy) === String(user.id || user._id);
 
   const goStep = (s) => { setPollDraft(d => ({ ...d, scenario, title, category: cat, step: s, votingDuration })); setStep(s); };
 
@@ -120,15 +123,8 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
 
   const [finishing, setFinishing] = useState(false);
   const handleFinish = async () => {
-    if (scenario === 'personal' && (!activePoll?.cards || activePoll.cards.length < 2)) {
+    if (!activePoll?.cards || activePoll.cards.length < 2) {
       showToast('Добавьте хотя бы 2 варианта');
-      return;
-    }
-    if (scenario !== 'personal' && (!activePoll?.cards || activePoll.cards.length === 0)) {
-      // Совместный сценарий без карточек пока не готов — просто уходим на главную,
-      // участники смогут присоединиться и добавить варианты позже
-      showToast('Опрос создан. Поделитесь кодом с участниками');
-      navigate('home');
       return;
     }
     setFinishing(true);
@@ -197,10 +193,14 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
           </>
         )}
 
-        {step === 3 && scenario === 'personal' && (
+        {step === 3 && (
           <>
             <div style={{ fontSize: 13, color: C.textSecondary, marginBottom: 16 }}>
-              Добавьте варианты — минимум 2. Фото не обязательно, но с ним нагляднее.
+              {scenario === 'personal'
+                ? 'Добавьте варианты — минимум 2. Фото не обязательно, но с ним нагляднее.'
+                : (isOrganizer
+                    ? 'Добавьте первые варианты — остальные участники смогут дополнить своими после присоединения.'
+                    : 'Добавьте свои варианты к этому опросу.')}
             </div>
 
             {/* Список уже добавленных карточек */}
@@ -341,14 +341,17 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
             {creating ? 'Создаём...' : 'Далее'}
           </PrimaryBtn>
         )}
-        {step === 3 && scenario === 'personal' && (
+        {step === 3 && isOrganizer && (
           <PrimaryBtn onClick={() => goStep(4)} disabled={!activePoll?.cards || activePoll.cards.length < 2}>
             Далее ({activePoll?.cards?.length || 0} из мин. 2)
           </PrimaryBtn>
         )}
+        {step === 3 && !isOrganizer && (
+          <PrimaryBtn onClick={() => navigate('home')}>Готово</PrimaryBtn>
+        )}
         {isInviteStep && (
           <PrimaryBtn onClick={handleFinish} disabled={finishing}>
-            {finishing ? 'Запускаем...' : scenario === 'personal' ? 'Начать голосование' : 'Создать опрос'}
+            {finishing ? 'Запускаем...' : 'Начать голосование'}
           </PrimaryBtn>
         )}
       </Footer>
