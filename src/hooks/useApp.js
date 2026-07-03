@@ -124,9 +124,9 @@ export function useApp() {
     if (screen === 'home') loadMyPolls();
   }, [screen, loadMyPolls]);
 
-  const createPoll = useCallback(async (title, category, scenario) => {
+  const createPoll = useCallback(async (title, category, scenario, targetParticipants = 2) => {
     try {
-      const res = await api.createPoll(title, category, scenario);
+      const res = await api.createPoll(title, category, scenario, targetParticipants);
       setActivePoll(res.poll);
       return res.poll;
     } catch (e) {
@@ -158,10 +158,11 @@ export function useApp() {
         const res = await api.results(pollId);
         setResults(res);
         setScreen('results');
-      } else if (poll.status !== 'active' || poll.participants.length < 2) {
-        setCardIdx(0);
-        setVotes({});
-        setScreen('waiting');
+      } else if (poll.status !== 'active') {
+        // Опрос ещё не запущен (например, совместный сценарий без карточек) —
+        // комнаты ожидания больше нет, просто сообщаем и остаёмся на главной
+        showToast('Опрос ещё не начался — добавьте варианты и запустите голосование');
+        setScreen('home');
       } else {
         // Голосование уже идёт — не начинаем заново, а продолжаем
         // с первой карточки, за которую ещё не проголосовали
@@ -190,13 +191,31 @@ export function useApp() {
   const joinByCode = useCallback(async (code) => {
     try {
       const res = await api.joinPoll(code);
-      setActivePoll(res.poll);
-      setCardIdx(0);
-      setVotes({});
-      // Присоединившийся всегда попадает в комнату ожидания —
-      // организатор сам решает когда стартовать голосование
-      setScreen('waiting');
+      const poll = res.poll;
+      setActivePoll(poll);
       showToast('Вы присоединились к опросу');
+
+      if (poll.status === 'completed') {
+        const r = await api.results(poll._id);
+        setResults(r);
+        setScreen('results');
+      } else if (poll.status !== 'active') {
+        showToast('Организатор ещё не запустил голосование');
+        setScreen('home');
+      } else {
+        const myVotes = await api.myVotes(poll._id);
+        const votedCardIds = new Set(myVotes.map(v => String(v.cardId)));
+        const nextIdx = poll.cards.findIndex(c => !votedCardIds.has(String(c._id)));
+        if (nextIdx === -1) {
+          const r = await api.results(poll._id);
+          setResults(r);
+          setScreen('results');
+        } else {
+          setCardIdx(nextIdx);
+          setVotes({});
+          setScreen('voting');
+        }
+      }
     } catch (e) {
       showToast(e.message || 'Код не найден');
     }
