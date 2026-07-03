@@ -40,6 +40,8 @@ export const api = {
 
   // Polls
   myPolls:     () => request('/polls/mine'),
+  deletePoll:  (pollId) => request(`/polls/${pollId}`, { method: 'DELETE' }),
+  updatePoll:  (pollId, data) => request(`/polls/${pollId}`, { method: 'PATCH', body: data }),
   createPoll:  (title, category, scenario, targetParticipants = 2, participants = []) =>
     request('/polls/create', { method: 'POST', body: { title, category, scenario, targetParticipants, participants } }),
   joinPoll:    (sessionCode) => request('/polls/join', { method: 'POST', body: { sessionCode } }),
