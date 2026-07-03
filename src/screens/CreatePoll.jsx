@@ -6,8 +6,14 @@ import { compressImage } from '../utils/imageCompress';
 import { buildMiniAppLink } from '../config';
 import { CATEGORIES } from '../theme/tokens';
 
+const DURATIONS = [
+  { minutes: 15,  label: '15 мин' },
+  { minutes: 60,  label: '1 час' },
+  { minutes: 180, label: '3 часа' },
+];
+
 const StepBar = ({ step, total }) => (
-  <div style={{ display: 'flex', gap: 6, padding: '0 20px 20px' }}>
+  <div style={{ display: 'flex', gap: 6, padding: '0 20px 20px', flexShrink: 0 }}>
     {Array.from({ length: total }, (_, i) => i + 1).map(i => (
       <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? C.accentTo : 'rgba(255,255,255,.1)' }} />
     ))}
@@ -15,18 +21,26 @@ const StepBar = ({ step, total }) => (
 );
 
 const Header = ({ title, onBack }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '18px 20px 8px' }}>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '18px 20px 8px', flexShrink: 0 }}>
     <div onClick={onBack} style={{ fontSize: 20, color: C.textSecondary, cursor: 'pointer' }}>←</div>
     <div style={{ fontSize: 17, fontWeight: 600, color: C.textPrimary }}>{title}</div>
   </div>
 );
 
-export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, startVoting, showToast }) {
+// Кнопка снизу — всегда прижата к нижнему краю экрана, не зависит от прокрутки контента выше
+const Footer = ({ children }) => (
+  <div style={{ flexShrink: 0, padding: '12px 20px calc(16px + env(safe-area-inset-bottom,0px))', borderTop: `1px solid ${C.borderSoft}`, background: C.bgBase }}>
+    {children}
+  </div>
+);
+
+export default function CreatePoll({ pollDraft, setPollDraft, activePoll, navigate, createPoll, addCardToPoll, showToast }) {
   const [scenario, setScenario] = useState(pollDraft.scenario);
   const [title, setTitle] = useState(pollDraft.title);
   const [cat, setCat] = useState(pollDraft.category);
   const [step, setStep] = useState(pollDraft.step || 1);
   const [creating, setCreating] = useState(false);
+  const [votingDuration, setVotingDuration] = useState(pollDraft.votingDuration || 60);
 
   // Шаг 3 — добавление карточек (для личного сценария)
   const [cardTitle, setCardTitle] = useState('');
@@ -57,8 +71,9 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
   };
 
   const totalSteps = scenario === 'personal' ? 4 : 3;
+  const isInviteStep = (step === 3 && scenario !== 'personal') || step === 4;
 
-  const goStep = (s) => { setPollDraft(d => ({ ...d, scenario, title, category: cat, step: s })); setStep(s); };
+  const goStep = (s) => { setPollDraft(d => ({ ...d, scenario, title, category: cat, step: s, votingDuration })); setStep(s); };
 
   const handleStep2Next = async () => {
     if (!title || !cat) return;
@@ -100,8 +115,8 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
       showToast('Добавьте хотя бы 2 варианта');
       return;
     }
-    // Голосование стартует не сразу — сначала комната ожидания,
-    // пока не подключится хотя бы ещё один участник
+    // Сохраняем выбранную длительность — комната ожидания возьмёт её при старте голосования
+    setPollDraft(d => ({ ...d, votingDuration }));
     navigate('waiting');
   };
 
@@ -110,7 +125,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
       <Header title="Новый опрос" onBack={() => step === 1 ? navigate('home') : goStep(step - 1)} />
       <StepBar step={step} total={totalSteps} />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 28px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
         {step === 1 && (
           <>
@@ -133,9 +148,6 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
                 <div style={{ fontSize: 12.5, color: C.textSecondary }}>{opt.desc}</div>
               </div>
             ))}
-            <div style={{ marginTop: 16 }}>
-              <PrimaryBtn onClick={() => scenario && goStep(2)} disabled={!scenario}>Далее</PrimaryBtn>
-            </div>
           </>
         )}
 
@@ -143,12 +155,9 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
           <>
             <Field label="Название опроса" value={title} onChange={setTitle} placeholder="Например: Куда сходим вечером?" />
             <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 10, fontWeight: 500 }}>Категория</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {CATEGORIES.map(c => <Chip key={c.id} label={c.label} emoji={c.emoji} active={cat === c.id} onClick={() => setCat(c.id)} />)}
             </div>
-            <PrimaryBtn onClick={handleStep2Next} disabled={!title || !cat || creating}>
-              {creating ? 'Создаём...' : 'Далее'}
-            </PrimaryBtn>
           </>
         )}
 
@@ -174,7 +183,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
             ))}
 
             {/* Форма добавления новой карточки */}
-            <div style={{ background: 'rgba(255,255,255,.03)', border: `1px dashed ${C.borderSoft}`, borderRadius: 18, padding: 14, marginTop: activePoll?.cards?.length ? 14 : 0, marginBottom: 16 }}>
+            <div style={{ background: 'rgba(255,255,255,.03)', border: `1px dashed ${C.borderSoft}`, borderRadius: 18, padding: 14, marginTop: activePoll?.cards?.length ? 14 : 0 }}>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: 'none' }} />
 
               <div
@@ -198,7 +207,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
 
               {/* Подсказки ссылок — появляются по мере ввода названия */}
               {placeSuggestions.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 7 }}>
                     Добавить ссылку
                   </div>
@@ -225,24 +234,22 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
                 </div>
               )}
 
+              {/* Кнопка добавления варианта — крупнее, как полноценное основное действие формы */}
               <div
                 onClick={handleAddCard}
                 style={{
-                  textAlign: 'center', padding: '11px', borderRadius: 12,
-                  background: cardTitle.trim() ? 'rgba(168,85,247,.15)' : 'rgba(255,255,255,.03)',
-                  color: cardTitle.trim() ? '#c4b5fd' : C.textMuted,
-                  fontSize: 13, fontWeight: 600, cursor: cardTitle.trim() ? 'pointer' : 'default',
+                  textAlign: 'center', padding: '15px', borderRadius: 14,
+                  background: cardTitle.trim() ? C.accent : 'rgba(255,255,255,.04)',
+                  color: cardTitle.trim() ? '#fff' : C.textMuted,
+                  fontSize: 15, fontWeight: 700, cursor: cardTitle.trim() ? 'pointer' : 'default',
+                  boxShadow: cardTitle.trim() ? '0 8px 20px rgba(124,58,237,.3)' : 'none',
                 }}
               >{addingCard ? 'Добавляем...' : '+ Добавить вариант'}</div>
             </div>
-
-            <PrimaryBtn onClick={() => goStep(4)} disabled={!activePoll?.cards || activePoll.cards.length < 2}>
-              Далее ({activePoll?.cards?.length || 0} из мин. 2)
-            </PrimaryBtn>
           </>
         )}
 
-        {((step === 3 && scenario !== 'personal') || step === 4) && (
+        {isInviteStep && (
           <>
             <div style={{ fontSize: 13, color: C.textSecondary, marginBottom: 18 }}>Пригласите участников</div>
             <div style={{
@@ -253,7 +260,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
               <div style={{ fontSize: 32, fontWeight: 700, color: C.textPrimary, letterSpacing: 4 }}>{activePoll?.sessionCode || '······'}</div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 28 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
               {[
                 { icon: '✈️', label: 'Telegram', action: () => tgShare(buildMiniAppLink(activePoll?.sessionCode), `Присоединяйся к опросу «${title}»!`) },
                 { icon: '💬', label: 'WhatsApp', action: () => window.open(`https://wa.me/?text=${encodeURIComponent('Присоединяйся! Код: ' + activePoll?.sessionCode)}`, '_blank') },
@@ -266,12 +273,49 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
               ))}
             </div>
 
-            <PrimaryBtn onClick={handleFinish}>
-              {scenario === 'personal' ? 'Начать голосование' : 'Создать и пригласить'}
-            </PrimaryBtn>
+            <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 10, fontWeight: 500 }}>
+              Сколько длится голосование
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {DURATIONS.map(d => (
+                <div
+                  key={d.minutes}
+                  onClick={() => { haptics.light(); setVotingDuration(d.minutes); }}
+                  style={{
+                    flex: 1, textAlign: 'center', padding: '11px 8px', borderRadius: 12, cursor: 'pointer',
+                    background: votingDuration === d.minutes ? 'rgba(168,85,247,.2)' : C.card,
+                    border: `1.5px solid ${votingDuration === d.minutes ? C.accentTo : C.borderSoft}`,
+                    color: votingDuration === d.minutes ? '#c4b5fd' : C.textSecondary,
+                    fontSize: 13, fontWeight: 600,
+                  }}
+                >{d.label}</div>
+              ))}
+            </div>
           </>
         )}
       </div>
+
+      {/* Кнопка "Далее" всегда прижата к низу экрана, вне зоны прокрутки */}
+      <Footer>
+        {step === 1 && (
+          <PrimaryBtn onClick={() => scenario && goStep(2)} disabled={!scenario}>Далее</PrimaryBtn>
+        )}
+        {step === 2 && (
+          <PrimaryBtn onClick={handleStep2Next} disabled={!title || !cat || creating}>
+            {creating ? 'Создаём...' : 'Далее'}
+          </PrimaryBtn>
+        )}
+        {step === 3 && scenario === 'personal' && (
+          <PrimaryBtn onClick={() => goStep(4)} disabled={!activePoll?.cards || activePoll.cards.length < 2}>
+            Далее ({activePoll?.cards?.length || 0} из мин. 2)
+          </PrimaryBtn>
+        )}
+        {isInviteStep && (
+          <PrimaryBtn onClick={handleFinish}>
+            {scenario === 'personal' ? 'Продолжить' : 'Создать и пригласить'}
+          </PrimaryBtn>
+        )}
+      </Footer>
     </div>
   );
 }

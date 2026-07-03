@@ -5,6 +5,19 @@ import { haptics } from '../hooks/useTelegram';
 
 const CAT_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
 
+function formatRemaining(votingEndsAt) {
+  if (!votingEndsAt) return null;
+  const ms = new Date(votingEndsAt).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const totalMin = Math.ceil(ms / 60000);
+  if (totalMin >= 60) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return m > 0 ? `${h} ч ${m} мин` : `${h} ч`;
+  }
+  return `${totalMin} мин`;
+}
+
 export default function Home({ user, myPolls, pollsLoading, navigate, openPoll }) {
   const [cat, setCat] = useState(null);
   const initials = (user?.name || '??').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -86,10 +99,13 @@ export default function Home({ user, myPolls, pollsLoading, navigate, openPoll }
                 </div>
                 <span style={{ fontSize: 11, background: 'rgba(168,85,247,.15)', color: '#c4b5fd', padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{catInfo.emoji} {catInfo.label}</span>
               </div>
-              <div style={{ height: 5, background: 'rgba(255,255,255,.08)', borderRadius: 3, overflow: 'hidden', marginBottom: isDone ? 8 : 0 }}>
+              <div style={{ height: 5, background: 'rgba(255,255,255,.08)', borderRadius: 3, overflow: 'hidden', marginBottom: isDone ? 8 : 6 }}>
                 <div style={{ height: '100%', width: `${poll.progress}%`, background: isDone ? C.like : C.accent, borderRadius: 3 }} />
               </div>
               {isDone && <div style={{ fontSize: 12, color: C.like, fontWeight: 500 }}>Готово · есть результаты 🎉</div>}
+              {!isDone && poll.status === 'active' && formatRemaining(poll.votingEndsAt) && (
+                <div style={{ fontSize: 11, color: C.textMuted }}>⏳ Осталось {formatRemaining(poll.votingEndsAt)}</div>
+              )}
             </div>
           );
         })}

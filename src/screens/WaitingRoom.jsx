@@ -7,7 +7,7 @@ import { buildMiniAppLink } from '../config';
 
 const MIN_PARTICIPANTS = 2;
 
-export default function WaitingRoom({ activePoll, setActivePoll, user, navigate, startVoting, showToast, cardIdx, setCardIdx, setVotes, setMatchCard, setScreen }) {
+export default function WaitingRoom({ activePoll, setActivePoll, user, navigate, startVoting, enterVoting, showToast, pollDraft }) {
   const [poll, setPoll] = useState(activePoll);
   const [starting, setStarting] = useState(false);
   const isCreator = poll && user && String(poll.createdBy?._id || poll.createdBy) === String(user.id);
@@ -31,15 +31,12 @@ export default function WaitingRoom({ activePoll, setActivePoll, user, navigate,
 
       // Если организатор уже запустил голосование — переходим все вместе
       if (fresh.status === 'active') {
-        setCardIdx(0);
-        setVotes({});
-        setMatchCard(null);
-        setScreen('voting');
+        enterVoting();
       }
     } catch (e) {
       // тихо игнорируем сетевые сбои опроса — попробуем через 3 сек снова
     }
-  }, [activePoll?._id, setActivePoll, showToast, setCardIdx, setVotes, setMatchCard, setScreen]);
+  }, [activePoll?._id, setActivePoll, showToast, enterVoting]);
 
   useEffect(() => {
     refresh();
@@ -50,7 +47,7 @@ export default function WaitingRoom({ activePoll, setActivePoll, user, navigate,
   const handleStart = async () => {
     if (!poll || poll.participants.length < MIN_PARTICIPANTS) return;
     setStarting(true);
-    await startVoting();
+    await startVoting(pollDraft?.votingDuration || 60);
     setStarting(false);
   };
 
@@ -144,9 +141,16 @@ export default function WaitingRoom({ activePoll, setActivePoll, user, navigate,
         <div style={{ flex: 1 }} />
 
         {isCreator ? (
-          <PrimaryBtn onClick={handleStart} disabled={!enoughPeople || starting}>
-            {starting ? 'Запускаем...' : enoughPeople ? 'Начать голосование' : `Нужно ещё ${MIN_PARTICIPANTS - poll.participants.length}`}
-          </PrimaryBtn>
+          <>
+            {pollDraft?.votingDuration && (
+              <div style={{ textAlign: 'center', fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+                Голосование продлится {pollDraft.votingDuration >= 60 ? `${pollDraft.votingDuration / 60} ч` : `${pollDraft.votingDuration} мин`}
+              </div>
+            )}
+            <PrimaryBtn onClick={handleStart} disabled={!enoughPeople || starting}>
+              {starting ? 'Запускаем...' : enoughPeople ? 'Начать голосование' : `Нужно ещё ${MIN_PARTICIPANTS - poll.participants.length}`}
+            </PrimaryBtn>
+          </>
         ) : (
           <div style={{ textAlign: 'center', fontSize: 12, color: C.textMuted, padding: '14px' }}>
             Ждём, пока организатор запустит голосование...
