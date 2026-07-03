@@ -47,7 +47,7 @@ export const api = {
   addCard:     (pollId, title, description, imageBase64, links) =>
     request(`/polls/${pollId}/cards`, { method: 'POST', body: { title, description, imageBase64, links } }),
   deleteCard:  (pollId, cardId) => request(`/polls/${pollId}/cards/${cardId}`, { method: 'DELETE' }),
-  startVoting: (pollId) => request(`/polls/${pollId}/start-voting`, { method: 'POST' }),
+  startVoting: (pollId, durationMinutes) => request(`/polls/${pollId}/start-voting`, { method: 'POST', body: { durationMinutes } }),
 
   // Votes
   submitVote: (pollId, cardId, vote) => request('/votes/vote', { method: 'POST', body: { pollId, cardId, vote } }),
