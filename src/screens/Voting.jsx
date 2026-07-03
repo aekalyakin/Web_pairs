@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { C, SHADOW, SWIPE } from '../theme/tokens';
 import { VoteDots } from '../components/UI';
-import { haptics, tgBackButton } from '../hooks/useTelegram';
+import { haptics, tgBackButton, tgOpenLink } from '../hooks/useTelegram';
 
 export default function Voting({ activePoll, cardIdx, castVote, nextCard, navigate, pollLoading }) {
   const cards = activePoll?.cards || [];
@@ -137,15 +137,44 @@ export default function Voting({ activePoll, cardIdx, castVote, nextCard, naviga
 
           <div style={{ padding: '16px 18px' }}>
             <div style={{ fontSize: 19, fontWeight: 600, color: C.textPrimary, marginBottom: 6 }}>{card.title}</div>
-            {card.description && <div style={{ fontSize: 13, color: C.textSecondary, lineHeight: 1.5 }}>{card.description}</div>}
+            {card.description && <div style={{ fontSize: 13, color: C.textSecondary, lineHeight: 1.5, marginBottom: card.links?.length ? 10 : 0 }}>{card.description}</div>}
+            {card.links?.length > 0 && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {card.links.map((url, i) => {
+                  const isYandex = url.includes('yandex.ru');
+                  const is2gis = url.includes('2gis.ru');
+                  const icon = isYandex ? '📍' : is2gis ? '🗺️' : '🔗';
+                  const name = isYandex ? 'Я.Карты' : is2gis ? '2GIS' : 'Ссылка';
+                  return (
+                    <div
+                      key={i}
+                      onClick={(e) => { e.stopPropagation(); tgOpenLink(url); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, background: 'rgba(255,255,255,.05)', border: `1px solid ${C.borderSoft}`, cursor: 'pointer' }}
+                    >
+                      <span style={{ fontSize: 13 }}>{icon}</span>
+                      <span style={{ fontSize: 11.5, color: C.textSecondary, fontWeight: 500 }}>{name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '16px 20px calc(20px + env(safe-area-inset-bottom,0px))' }}>
-        <div onClick={() => commit('nope')} style={{ width: 54, height: 54, borderRadius: 27, border: `2px solid ${C.no}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: C.no, cursor: 'pointer' }}>✕</div>
-        <div onClick={() => commit('discuss')} style={{ width: 54, height: 54, borderRadius: 27, border: `2px solid ${C.discuss}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: C.discuss, cursor: 'pointer' }}>💬</div>
-        <div onClick={() => commit('like')} style={{ width: 64, height: 64, borderRadius: 32, background: C.like, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#0d0d1c', cursor: 'pointer', boxShadow: SHADOW.likeButton }}>♥</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 12, padding: '16px 20px calc(20px + env(safe-area-inset-bottom,0px))' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          <div onClick={() => commit('nope')} style={{ width: 54, height: 54, borderRadius: 27, border: `2px solid ${C.no}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: C.no, cursor: 'pointer' }}>✕</div>
+          <span style={{ fontSize: 10.5, color: C.no, fontWeight: 600 }}>Нет</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          <div onClick={() => commit('discuss')} style={{ width: 54, height: 54, borderRadius: 27, border: `2px solid ${C.discuss}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: C.discuss, cursor: 'pointer' }}>💬</div>
+          <span style={{ fontSize: 10.5, color: C.discuss, fontWeight: 600 }}>Обсудим</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          <div onClick={() => commit('like')} style={{ width: 64, height: 64, borderRadius: 32, background: C.like, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#0d0d1c', cursor: 'pointer', boxShadow: SHADOW.likeButton }}>♥</div>
+          <span style={{ fontSize: 10.5, color: C.like, fontWeight: 600 }}>Да</span>
+        </div>
       </div>
     </div>
   );

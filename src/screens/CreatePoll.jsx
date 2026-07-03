@@ -3,6 +3,7 @@ import { C } from '../theme/tokens';
 import { PrimaryBtn, Chip, Field } from '../components/UI';
 import { tgShare, haptics } from '../hooks/useTelegram';
 import { compressImage } from '../utils/imageCompress';
+import { buildMiniAppLink } from '../config';
 import { CATEGORIES } from '../theme/tokens';
 
 const StepBar = ({ step, total }) => (
@@ -34,7 +35,26 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
   const [cardImagePreview, setCardImagePreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [addingCard, setAddingCard] = useState(false);
+  const [cardLinks, setCardLinks] = useState([]); // [{ id, name, icon, url }]
   const fileInputRef = useRef(null);
+
+  // Готовые поисковые ссылки на Я.Карты и 2GIS строятся прямо из названия —
+  // никакого API-ключа не нужно, оба сервиса поддерживают прямой поиск по URL
+  const buildPlaceLinks = (query) => {
+    const q = encodeURIComponent(query.trim());
+    return [
+      { id: 'ymaps', name: 'Я.Карты', icon: '📍', url: `https://yandex.ru/maps/?text=${q}` },
+      { id: '2gis',  name: '2GIS',    icon: '🗺️', url: `https://2gis.ru/search/${q}` },
+    ];
+  };
+  const placeSuggestions = cardTitle.trim().length >= 2 ? buildPlaceLinks(cardTitle) : [];
+  const toggleLink = (suggestion) => {
+    setCardLinks(prev => {
+      const exists = prev.some(l => l.id === suggestion.id);
+      return exists ? prev.filter(l => l.id !== suggestion.id) : [...prev, suggestion];
+    });
+    haptics.light();
+  };
 
   const totalSteps = scenario === 'personal' ? 4 : 3;
 
@@ -66,20 +86,23 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
   const handleAddCard = async () => {
     if (!cardTitle.trim() || !activePoll) return;
     setAddingCard(true);
-    const ok = await addCardToPoll(activePoll._id, cardTitle.trim(), cardDesc.trim(), cardImage, []);
+    const links = cardLinks.map(l => l.url);
+    const ok = await addCardToPoll(activePoll._id, cardTitle.trim(), cardDesc.trim(), cardImage, links);
     setAddingCard(false);
     if (ok) {
-      setCardTitle(''); setCardDesc(''); setCardImage(null); setCardImagePreview(null);
+      setCardTitle(''); setCardDesc(''); setCardImage(null); setCardImagePreview(null); setCardLinks([]);
       haptics.light();
     }
   };
 
-  const handleFinish = async () => {
+  const handleFinish = () => {
     if (scenario === 'personal' && (!activePoll?.cards || activePoll.cards.length < 2)) {
       showToast('Добавьте хотя бы 2 варианта');
       return;
     }
-    await startVoting();
+    // Голосование стартует не сразу — сначала комната ожидания,
+    // пока не подключится хотя бы ещё один участник
+    navigate('waiting');
   };
 
   return (
@@ -173,6 +196,35 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
               <Field value={cardTitle} onChange={setCardTitle} placeholder="Название варианта" />
               <Field value={cardDesc} onChange={setCardDesc} placeholder="Короткое описание (необязательно)" />
 
+              {/* Подсказки ссылок — появляются по мере ввода названия */}
+              {placeSuggestions.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 7 }}>
+                    Добавить ссылку
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {placeSuggestions.map(s => {
+                      const active = cardLinks.some(l => l.id === s.id);
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => toggleLink(s)}
+                          style={{
+                            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '9px 10px', borderRadius: 12, cursor: 'pointer',
+                            background: active ? 'rgba(74,222,128,.12)' : 'rgba(255,255,255,.04)',
+                            border: `1px solid ${active ? C.like : C.borderSoft}`,
+                          }}
+                        >
+                          <span style={{ fontSize: 15 }}>{active ? '✓' : s.icon}</span>
+                          <span style={{ fontSize: 11.5, color: active ? C.like : C.textSecondary, fontWeight: 500 }}>{s.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div
                 onClick={handleAddCard}
                 style={{
@@ -203,7 +255,7 @@ export default function CreatePoll({ pollDraft, setPollDraft, activePoll, naviga
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 28 }}>
               {[
-                { icon: '✈️', label: 'Telegram', action: () => tgShare(`https://t.me/PairDecisionsBot/app?startapp=${activePoll?.sessionCode}`, `Присоединяйся к опросу «${title}»!`) },
+                { icon: '✈️', label: 'Telegram', action: () => tgShare(buildMiniAppLink(activePoll?.sessionCode), `Присоединяйся к опросу «${title}»!`) },
                 { icon: '💬', label: 'WhatsApp', action: () => window.open(`https://wa.me/?text=${encodeURIComponent('Присоединяйся! Код: ' + activePoll?.sessionCode)}`, '_blank') },
                 { icon: '🔗', label: 'Скопировать', action: () => { navigator.clipboard?.writeText(activePoll?.sessionCode || ''); showToast('Код скопирован'); } },
               ].map(s => (
