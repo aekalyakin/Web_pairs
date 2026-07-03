@@ -40,8 +40,8 @@ export const api = {
 
   // Polls
   myPolls:     () => request('/polls/mine'),
-  createPoll:  (title, category, scenario, participants = []) =>
-    request('/polls/create', { method: 'POST', body: { title, category, scenario, participants } }),
+  createPoll:  (title, category, scenario, targetParticipants = 2, participants = []) =>
+    request('/polls/create', { method: 'POST', body: { title, category, scenario, targetParticipants, participants } }),
   joinPoll:    (sessionCode) => request('/polls/join', { method: 'POST', body: { sessionCode } }),
   getPoll:     (pollId) => request(`/polls/${pollId}`),
   addCard:     (pollId, title, description, imageBase64, links) =>
